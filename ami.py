@@ -1,24 +1,48 @@
-import subprocess
+import boto3
 
-# スナップショット情報をファイルから読み込む
-with open('snapshots.txt', 'r') as file:
-    snapshot_info = [line.strip().split() for line in file.readlines()]
+# AWS クライアント作成
+ec2 = boto3.client('ec2')
 
-# AMI IDのリストを取得
-ami_ids = subprocess.check_output(
-    ["aws", "ec2", "describe-images", "--owners", "<アカウントID>", "--query", "Images[*].ImageId", "--output", "text"]
-).decode().split()
+# 入力ファイル名
+input_filename = "snap_ami_list.txt"
+output_deleted_ami_filename = "deleted_snapshots.txt"
+output_visualized_filename = "visualized_snapshots.txt"
 
-# 削除済みのAMIを特定
-deleted_ami = []
-for account, snapshot_id, ami_id in snapshot_info:
-    if ami_id not in ami_ids:
-        deleted_ami.append((account, snapshot_id, ami_id))
+# ファイルからスナップショットと AMI のリストを読み込む
+snap_ami_map = []
+with open(input_filename, "r") as file:
+    for line in file:
+        parts = line.strip().split()
+        if len(parts) == 2:
+            snap_ami_map.append((parts[0], parts[1]))
 
-# 結果を表示
-if deleted_ami:
-    print("Deleted AMIs found:")
-    for account, snapshot_id, ami_id in deleted_ami:
-        print(f"Account: {account}, Snapshot ID: {snapshot_id}, AMI ID: {ami_id}")
-else:
-    print("No deleted AMIs found.")
+# AMI の存在をチェック
+deleted_snapshots = []
+visualized_data = []
+
+for snap_id, ami_id in snap_ami_map:
+    try:
+        response = ec2.describe_images(ImageIds=[ami_id])
+        # AMI が存在する場合、そのままリストに追加
+        if response.get("Images"):
+            visualized_data.append(f"{snap_id} {ami_id}")
+        else:
+            deleted_snapshots.append(snap_id)
+            visualized_data.append(f"{snap_id}")  # AMI 削除済みは snap_id のみ表示
+    except ec2.exceptions.ClientError as e:
+        # AMI が見つからないエラーなら削除リストに追加
+        if "InvalidAMIID.NotFound" in str(e):
+            deleted_snapshots.append(snap_id)
+            visualized_data.append(f"{snap_id}")  # AMI 削除済み
+        else:
+            print(f"Error checking AMI {ami_id}: {e}")
+
+# 結果をファイルに出力
+with open(output_deleted_ami_filename, "w") as file:
+    file.write("\n".join(deleted_snapshots) + "\n")
+
+with open(output_visualized_filename, "w") as file:
+    file.write("\n".join(visualized_data) + "\n")
+
+print("処理完了: 削除対象スナップショットを", output_deleted_ami_filename, "に保存")
+print("処理完了: 可視化結果を", output_visualized_filename, "に保存")
