@@ -1,1 +1,5 @@
 aws ec2 describe-images --owners self --query "Images[*].{ID:ImageId, Snapshots:BlockDeviceMappings[*].Ebs.SnapshotId}" --output text
+
+
+
+aws ec2 describe-images --owners self --query "Images[*].BlockDeviceMappings[*].Ebs.SnapshotId" --output text
