@@ -6,13 +6,15 @@ aws ec2 describe-images --owners self --query "Images[*].BlockDeviceMappings[*].
 
 
 INPUT_FILE="input.txt"
+OUTPUT_FILE="snapshot_check_results.txt"
+
+# 出力ファイルをクリア
+> "$OUTPUT_FILE"
 
 while read -r snapshot_id; do
-    exists=$(aws ec2 describe-snapshots --snapshot-ids "$snapshot_id" --query "Snapshots[*].SnapshotId" --output text 2>/dev/null)
-    
-    if [ -n "$exists" ]; then
-        echo "$snapshot_id: 存在します"
-    else
-        echo "$snapshot_id: 存在しません"
-    fi
+    # AWS CLI の出力とエラーメッセージを取得し、ファイルに記録
+    echo "$snapshot_id: $(aws ec2 describe-snapshots --snapshot-ids "$snapshot_id" --query "Snapshots[*].SnapshotId" --output text 2>&1)" >> "$OUTPUT_FILE"
 done < "$INPUT_FILE"
+
+echo "結果を $OUTPUT_FILE に保存しました。"
+
