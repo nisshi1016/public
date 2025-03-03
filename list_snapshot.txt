@@ -3,3 +3,16 @@ aws ec2 describe-images --owners self --query "Images[*].{ID:ImageId, Snapshots:
 
 
 aws ec2 describe-images --owners self --query "Images[*].BlockDeviceMappings[*].Ebs.SnapshotId" --output text
+
+
+INPUT_FILE="input.txt"
+
+while read -r snapshot_id; do
+    exists=$(aws ec2 describe-snapshots --snapshot-ids "$snapshot_id" --query "Snapshots[*].SnapshotId" --output text 2>/dev/null)
+    
+    if [ -n "$exists" ]; then
+        echo "$snapshot_id: 存在します"
+    else
+        echo "$snapshot_id: 存在しません"
+    fi
+done < "$INPUT_FILE"
