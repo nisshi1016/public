@@ -1,0 +1,77 @@
+以下の手順で Athena のデータカタログを AWS Glue に移行し、前後の状態を比較できます。  
+
+---
+
+## **1. Athena のデータカタログを確認（移行前）**  
+まず、Athena のデータカタログ内のデータベースとテーブルを確認します。  
+
+### **1-1. データベースの一覧を取得**
+```sh
+aws athena list-databases --catalog-name AwsDataCatalog
+```
+
+### **1-2. 各データベースのテーブル一覧を取得**
+```sh
+aws athena list-table-metadata --catalog-name AwsDataCatalog --database-name <データベース名>
+```
+
+---
+
+## **2. AWS Glue のデータカタログを確認（移行前）**  
+AWS Glue 側のデータカタログが空であること、または既存の状態を確認します。  
+
+### **2-1. Glue のデータベース一覧を取得**
+```sh
+aws glue get-databases
+```
+
+### **2-2. Glue の特定のデータベース内のテーブル一覧を取得**
+```sh
+aws glue get-tables --database-name <データベース名>
+```
+💡 もし AWS Glue に既にデータがある場合は、Athena のデータカタログと比較しておきましょう。  
+
+---
+
+## **3. Athena から AWS Glue に移行**  
+以下のコマンドを実行して、Athena のデータカタログを AWS Glue にインポートします。  
+
+### **3-1. Athena のデータカタログを AWS Glue に移行**
+```sh
+aws glue import-catalog-to-glue --catalog-id <AWSアカウントID>
+```
+💡 `<AWSアカウントID>` には 12 桁の AWS アカウント ID を指定してください。  
+
+### **3-2. 移行ステータスの確認**
+```sh
+aws glue get-catalog-import-status --catalog-id <AWSアカウントID>
+```
+`ImportCompleted` が `true` になれば、移行は完了です。  
+
+---
+
+## **4. AWS Glue のデータカタログを確認（移行後）**  
+AWS Glue のデータカタログが正しく移行されたかを確認します。  
+
+### **4-1. Glue のデータベース一覧を再取得**
+```sh
+aws glue get-databases
+```
+
+### **4-2. Glue の各データベースのテーブル一覧を取得**
+```sh
+aws glue get-tables --database-name <データベース名>
+```
+💡 移行前（手順2）と比較し、Athena のデータベースとテーブルが AWS Glue に正しく移行されたかをチェックします。  
+
+---
+
+## **まとめ**
+| 手順 | 説明 |
+|------|------|
+| 1. Athena のデータカタログを確認（移行前） | `list-databases`, `list-table-metadata` |
+| 2. Glue のデータカタログを確認（移行前） | `get-databases`, `get-tables` |
+| 3. Athena から Glue に移行 | `import-catalog-to-glue` |
+| 4. Glue のデータカタログを確認（移行後） | `get-databases`, `get-tables` |
+
+これで、Athena から Glue へのデータカタログ移行の前後関係を確認できます！ 🎯
