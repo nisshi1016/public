@@ -1,0 +1,223 @@
+AWS CLI を使用して Classic WAF のルールを AWS WAF v2 に手動移行した際の結果例を含めた手順を紹介します。  
+
+---
+
+## **1. Classic WAF の WebACL 情報を取得**
+まず、Classic WAF にある WebACL の情報を取得します。  
+
+```sh
+aws waf get-web-acl --web-acl-id <ClassicWAFのWebACL ID>
+```
+
+### **実行結果（例）**
+```json
+{
+    "WebACL": {
+        "WebACLId": "a1b2c3d4-5678-90ab-cdef-EXAMPLE11111",
+        "Name": "MyClassicWebACL",
+        "Rules": [
+            {
+                "RuleId": "111aaa-bbbb-cccc-dddd-111aaa222bbb",
+                "Priority": 1
+            },
+            {
+                "RuleId": "222aaa-bbbb-cccc-dddd-222aaa333bbb",
+                "Priority": 2
+            }
+        ]
+    }
+}
+```
+この結果から、**2つのルール**（`RuleId`）があることが分かります。
+
+---
+
+## **2. Classic WAF のルール情報を取得**
+Classic WAF の各ルールを確認します。
+
+```sh
+aws waf get-rule --rule-id 111aaa-bbbb-cccc-dddd-111aaa222bbb
+```
+
+### **実行結果（例）**
+```json
+{
+    "Rule": {
+        "RuleId": "111aaa-bbbb-cccc-dddd-111aaa222bbb",
+        "Name": "BlockBadBots",
+        "MetricName": "BlockBadBotsMetric",
+        "Predicates": [
+            {
+                "Negated": false,
+                "Type": "IPMatch",
+                "DataId": "333aaa-bbbb-cccc-dddd-333aaa444bbb"
+            }
+        ]
+    }
+}
+```
+このルール `BlockBadBots` は **IPMatch**（IPアドレスによるフィルタリング）を行っていることが分かります。
+
+---
+
+## **3. Classic WAF の IPセット情報を取得**
+このルールが参照している **IPセット** を確認します。
+
+```sh
+aws waf get-ip-set --ip-set-id 333aaa-bbbb-cccc-dddd-333aaa444bbb
+```
+
+### **実行結果（例）**
+```json
+{
+    "IPSet": {
+        "IPSetId": "333aaa-bbbb-cccc-dddd-333aaa444bbb",
+        "Name": "BadBotIPs",
+        "IPSetDescriptors": [
+            {
+                "Type": "IPV4",
+                "Value": "192.0.2.0/24"
+            },
+            {
+                "Type": "IPV4",
+                "Value": "203.0.113.0/24"
+            }
+        ]
+    }
+}
+```
+IPセット `BadBotIPs` には、 **`192.0.2.0/24` と `203.0.113.0/24` をブロックする設定** が入っていることが分かります。
+
+---
+
+## **4. 新しい AWS WAF に IPセットを作成**
+Classic WAF の IPセットを AWS WAF v2 に移行します。
+
+```sh
+aws wafv2 create-ip-set \
+    --name "BadBotIPs" \
+    --scope REGIONAL \
+    --ip-address-version IPV4 \
+    --addresses "192.0.2.0/24" "203.0.113.0/24"
+```
+
+### **実行結果（例）**
+```json
+{
+    "IPSet": {
+        "ARN": "arn:aws:wafv2:us-east-1:123456789012:regional/ipset/BadBotIPs/a1b2c3d4-5678-90ab-cdef-EXAMPLE22222"
+    }
+}
+```
+新しい WAF v2 の **IPSet ARN** が発行されました。
+
+---
+
+## **5. 新しい AWS WAF v2 にルールを作成**
+Classic WAF のルール `BlockBadBots` を AWS WAF v2 に移行します。
+
+```sh
+aws wafv2 create-rule \
+    --name "BlockBadBots" \
+    --scope REGIONAL \
+    --statement '{
+        "IPSetReferenceStatement": {
+            "ARN": "arn:aws:wafv2:us-east-1:123456789012:regional/ipset/BadBotIPs/a1b2c3d4-5678-90ab-cdef-EXAMPLE22222"
+        }
+    }' \
+    --action '{"Block": {}}' \
+    --priority 1
+```
+
+### **実行結果（例）**
+```json
+{
+    "Summary": {
+        "Name": "BlockBadBots",
+        "Id": "b1c2d3e4-5678-90ab-cdef-EXAMPLE33333"
+    }
+}
+```
+新しい WAF v2 に `BlockBadBots` ルールが作成されました。
+
+---
+
+## **6. 新しい WAF v2 WebACL にルールを関連付け**
+Classic WAF の WebACL を移行するために、新しい WAF v2 WebACL を作成し、移行したルールを関連付けます。
+
+### **WebACL 作成**
+```sh
+aws wafv2 create-web-acl \
+    --name "MyNewWebACL" \
+    --scope REGIONAL \
+    --default-action '{"Allow": {}}' \
+    --rules '[{
+        "Name": "BlockBadBots",
+        "Priority": 1,
+        "Statement": {
+            "IPSetReferenceStatement": {
+                "ARN": "arn:aws:wafv2:us-east-1:123456789012:regional/ipset/BadBotIPs/a1b2c3d4-5678-90ab-cdef-EXAMPLE22222"
+            }
+        },
+        "Action": {"Block": {}},
+        "VisibilityConfig": {
+            "SampledRequestsEnabled": true,
+            "CloudWatchMetricsEnabled": true,
+            "MetricName": "BlockBadBotsMetric"
+        }
+    }]'
+```
+
+### **実行結果（例）**
+```json
+{
+    "Summary": {
+        "Name": "MyNewWebACL",
+        "Id": "c1d2e3f4-5678-90ab-cdef-EXAMPLE44444"
+    }
+}
+```
+新しい WebACL `MyNewWebACL` が作成されました。
+
+---
+
+## **7. 新しい WebACL を ALB や CloudFront に適用**
+例えば、ALB に適用する場合：
+
+```sh
+aws wafv2 associate-web-acl \
+    --web-acl-arn "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/MyNewWebACL/c1d2e3f4-5678-90ab-cdef-EXAMPLE44444" \
+    --resource-arn "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/my-alb/50dc6c495c0c9188"
+```
+
+### **実行結果**
+```json
+{
+    "ResponseMetadata": {
+        "RequestId": "abcd1234-5678-90ab-cdef-EXAMPLE55555",
+        "HTTPStatusCode": 200
+    }
+}
+```
+これで、新しい WebACL `MyNewWebACL` が ALB に適用されました。
+
+---
+
+## **8. 動作確認と Classic WAF の削除**
+- CloudWatch Logs でリクエストのログを確認。
+- 正常に動作したら Classic WAF の WebACL を削除。
+
+---
+
+## **まとめ**
+| ステップ | CLI コマンド |
+|----------|-------------|
+| Classic WAF の WebACL 取得 | `aws waf get-web-acl` |
+| Classic WAF のルール取得 | `aws waf get-rule` |
+| Classic WAF の IPセット取得 | `aws waf get-ip-set` |
+| AWS WAF v2 に IPセット作成 | `aws wafv2 create-ip-set` |
+| AWS WAF v2 にルール作成 | `aws wafv2 create-rule` |
+| AWS WAF v2 に WebACL 作成 | `aws wafv2 create-web-acl` |
+| WebACL を ALB/CloudFront に適用 | `aws wafv2 associate-web-acl` |
+
+この流れで Classic WAF から AWS WAF v2 に移行できます！
