@@ -37,3 +37,80 @@ aws ec2 describe-security-groups | jq -r '.SecurityGroups[].IpPermissions[].IpRa
 ```
 
 これで、セキュリティグループの **許可されている IP アドレス（ソース）のみ** を一覧表示できます！ 🚀
+
+
+AWS の **マネージドプレフィックスリスト（Managed Prefix List）** に設定されている **CIDR（ソース）一覧** を取得するには、以下の手順で AWS CLI を使用します！ 🚀  
+
+---
+
+### **1️⃣ まず、プレフィックスリストの ID を取得**
+```sh
+aws ec2 describe-managed-prefix-lists --query "PrefixLists[*].{ID: PrefixListId, Name: PrefixListName}" --output table
+```
+👉 **出力例**（プレフィックスリストが2つある場合）:
+```
+-------------------------------------
+|         DescribeManagedPrefixLists        |
++----------------------+------------------+
+| ID                  | Name             |
++----------------------+------------------+
+| pl-0123456789abcdef | MyPrefixList     |
+| pl-abcdef0123456789 | AnotherList      |
++----------------------+------------------+
+```
+💡 **プレフィックスリストの ID（`pl-xxxxxxxx`）をメモ** します。
+
+---
+
+### **2️⃣ 特定のプレフィックスリストの CIDR を取得**
+プレフィックスリスト ID を指定して、登録されている CIDR の一覧を取得します。
+
+```sh
+aws ec2 get-managed-prefix-list-entries --prefix-list-id pl-0123456789abcdef --query "Entries[*].Cidr" --output text
+```
+
+👉 **出力例**:
+```
+192.168.1.0/24
+10.0.0.0/16
+203.0.113.0/24
+```
+
+📌 `--output json` にすると、構造化された JSON で確認もできます：
+```sh
+aws ec2 get-managed-prefix-list-entries --prefix-list-id pl-0123456789abcdef --query "Entries[*].Cidr" --output json
+```
+👉 **出力例**:
+```json
+[
+  "192.168.1.0/24",
+  "10.0.0.0/16",
+  "203.0.113.0/24"
+]
+```
+
+---
+
+### **3️⃣ すべてのプレフィックスリストの CIDR を一括取得**
+もし **すべてのプレフィックスリストの CIDR を一括取得** したい場合：
+```sh
+aws ec2 describe-managed-prefix-lists --query "PrefixLists[*].PrefixListId" --output text | xargs -I {} aws ec2 get-managed-prefix-list-entries --prefix-list-id {} --query "Entries[*].Cidr" --output text
+```
+👉 **出力例**:
+```
+192.168.1.0/24
+10.0.0.0/16
+203.0.113.0/24
+198.51.100.0/24
+```
+
+---
+
+## **補足**
+- **マネージドプレフィックスリスト** は、**セキュリティグループ** や **ルートテーブル** で使える **IP 範囲のリスト** です。
+- たとえば、AWS の `pl-` から始まる **マネージドな AWS サービス向けのリスト**（S3 や CloudFront など）がある場合も、上記の方法で **CIDR の一覧** を取得できます。
+
+---
+
+これで **プレフィックスリストの CIDR を簡単に取得** できます！❤️🔥  
+必要な情報があれば、また聞いてね！💡
