@@ -114,3 +114,101 @@ aws ec2 describe-managed-prefix-lists --query "PrefixLists[*].PrefixListId" --ou
 
 これで **プレフィックスリストの CIDR を簡単に取得** できます！❤️🔥  
 必要な情報があれば、また聞いてね！💡
+
+
+ipsets---------
+AWS WAF の **IP Sets** に登録されている **IPアドレス一覧** を取得する方法を紹介するね！🚀  
+`jq` を使って `" "`（ダブルクォーテーション）を表示させずに出力する方法も含めて説明するよ！  
+
+---
+
+## **1️⃣ WAF の IP セット一覧を取得**
+まず、AWS WAF に登録されている **IPセットの ID** を取得する。
+
+```sh
+aws wafv2 list-ip-sets --scope REGIONAL --query "IPSets[*].{ID:Id, Name:Name}" --output table
+```
+👉 **出力例**:
+```
+---------------------------------
+|       ListIpSets              |
++----------------+--------------+
+| ID            | Name         |
++----------------+--------------+
+| 12345678-aaaa | MyIPSet      |
+| abcdef12-bbbb | AnotherIPSet |
++----------------+--------------+
+```
+
+📌 **`--scope` の選択について**
+- `REGIONAL` → ALB などの WAF の場合
+- `CLOUDFRONT` → CloudFront の WAF の場合
+
+CloudFront 用の WAF の場合は `--scope CLOUDFRONT` を使ってね！
+
+---
+
+## **2️⃣ 特定の IPセットの CIDR（ソース IP）を取得**
+IPセットの ID（例: `12345678-aaaa`）を指定して、IP のリストを取得する。
+
+```sh
+aws wafv2 get-ip-set --scope REGIONAL --id 12345678-aaaa --name MyIPSet --query "IPSet.Addresses" --output text
+```
+
+👉 **出力例**:
+```
+192.168.1.0/24
+10.0.0.0/16
+203.0.113.45/32
+```
+
+✅ `--output text` を指定することで、`jq` を使わなくても `" "`（ダブルクォーテーション）なしで表示できるよ！
+
+---
+
+## **3️⃣ すべての IPセットの CIDR を一覧で取得**
+WAF に登録されている **すべての IP セットの CIDR を一覧表示** したい場合は、以下のコマンドを実行。
+
+```sh
+aws wafv2 list-ip-sets --scope REGIONAL --query "IPSets[*].Id" --output text | xargs -I {} aws wafv2 get-ip-set --scope REGIONAL --id {} --query "IPSet.Addresses" --output text
+```
+
+👉 **出力例**:
+```
+192.168.1.0/24
+10.0.0.0/16
+203.0.113.45/32
+198.51.100.0/24
+```
+
+📌 **`CLOUDFRONT` の場合**
+```sh
+aws wafv2 list-ip-sets --scope CLOUDFRONT --query "IPSets[*].Id" --output text | xargs -I {} aws wafv2 get-ip-set --scope CLOUDFRONT --id {} --query "IPSet.Addresses" --output text
+```
+
+---
+
+## **4️⃣ `jq` を使って整理する場合**
+もし `jq` を使って JSON をフィルタリングしたいなら、次のコマンドを使う。
+
+```sh
+aws wafv2 get-ip-set --scope REGIONAL --id 12345678-aaaa --name MyIPSet | jq -r '.IPSet.Addresses[]'
+```
+
+👉 **出力例（ダブルクォーテーションなし）**:
+```
+192.168.1.0/24
+10.0.0.0/16
+203.0.113.45/32
+```
+
+---
+
+## **まとめ**
+- **IPセットの一覧** → `list-ip-sets`
+- **特定のIPセットのCIDR一覧** → `get-ip-set`
+- **すべてのIPセットのCIDR一覧** → `xargs` で `list-ip-sets` と `get-ip-set` を組み合わせる
+- **`jq` を使う場合** → `jq -r` でダブルクォーテーションなしにする
+
+これで **AWS WAF の IP セット（IPSets）を CLI で取得する方法** が完璧！❤️  
+また何かあれば気軽に聞いてね！🔥🚀
