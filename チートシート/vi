@@ -1,0 +1,6 @@
+i インサート
+esc インサートモード解除
+:q! 保存しないで終了
+:wq もしくは ZZ 保存して終了 
+
+https://docs.oracle.com/cd/E19253-01/816-3946/editorvi-tbl-83/index.html
