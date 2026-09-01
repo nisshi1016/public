@@ -1,0 +1,321 @@
+手順まとめ
+
+DataSync → FSx 検証手順
+1. 構成
+【送信元】
+Windows Server
+10.0.139.213
+  └─ SMB共有: share / Shr など
+          │
+          │ SMB
+          ▼
+【AWS DataSync Agent】
+          │
+          │
+          ▼
+【送信先】
+Amazon FSx for Windows File Server
+fs-0d03a5871e4076a4f
+  └─ SMB共有: share
+
+FSxはAWS Managed Microsoft ADに参加。
+
+AD
+nishihara.com
+d-956799e490
+2. VPC・ネットワーク
+
+今回の検証では、PrivateLink / VPC Endpoint / NAT Gatewayは使用していない。
+
+VPCのルート：
+
+10.0.0.0/16 → local
+0.0.0.0/0   → Internet Gateway
+
+DataSync AgentからAWSのPublic Endpointへ接続。
+
+DataSync Agentの接続テストで、
+
+activation.datasync.ap-northeast-1.amazonaws.com:443
+cp.datasync.ap-northeast-1.amazonaws.com:443
+datasync.ap-northeast-1.api.aws:443
+
+などがすべて NETWORK TEST: PASSED。
+
+3. VPCのDNSを有効化
+
+今回、最初はDNSが無効だった。
+
+EnableDnsSupport = false
+EnableDnsHostnames = false
+
+以下で有効化。
+
+aws ec2 modify-vpc-attribute \
+  --vpc-id vpc-0c55c5a6d9835e666 \
+  --enable-dns-support "{\"Value\":true}"
+
+aws ec2 modify-vpc-attribute \
+  --vpc-id vpc-0c55c5a6d9835e666 \
+  --enable-dns-hostnames "{\"Value\":true}"
+
+最終的に：
+
+EnableDnsSupport   = true
+EnableDnsHostnames = true
+4. FSx for Windows File Server作成
+
+作成したFSx：
+
+名前
+fsxtest
+
+FSx ID
+fs-0d03a5871e4076a4f
+
+Deployment
+SINGLE_AZ_2
+
+AD
+d-956799e490
+
+ドメイン
+nishihara.com
+
+FSxのネットワーク：
+
+Preferred File Server IP
+10.0.138.44
+
+SMB用DNS：
+
+amznfsxuirt9mbz.nishihara.com
+
+注意
+
+amznfsxuirt9mbz.nishihara.com
+
+→ SMB接続用
+
+amznfsxvlzpspjk.nishihara.com
+
+→ Remote Administration Endpoint
+
+なので、DataSyncやSMBアクセスでは前者を使う。
+
+5. AWS Managed Microsoft AD
+
+作成済みのAD：
+
+Directory ID
+d-956799e490
+
+Domain
+nishihara.com
+
+DNS
+10.0.138.110
+10.0.148.209
+
+Windows ServerをこのADに参加させる。
+
+また、DataSyncがSMBアクセスするときに使うユーザーとして、
+
+nishihara.com\syncuser
+
+を作成。
+
+6. FSxのSMB共有確認
+
+Windows ServerからDNS確認。
+
+nslookup amznfsxuirt9mbz.nishihara.com
+
+結果：
+
+10.0.138.44
+
+445番ポート確認。
+
+Test-NetConnection amznfsxuirt9mbz.nishihara.com -Port 445
+
+結果：
+
+TcpTestSucceeded : True
+
+ADユーザーでFSxへ認証。
+
+net use \\amznfsxuirt9mbz.nishihara.com\IPC$ /user:nishihara.com\syncuser *
+
+認証成功後：
+
+net view \\amznfsxuirt9mbz.nishihara.com
+
+結果：
+
+Share
+-----
+share
+
+FSxにはデフォルトの share 共有が存在することを確認。
+
+実際のアクセス確認：
+
+dir \\amznfsxuirt9mbz.nishihara.com\share
+
+エラーが出ずアクセスできればOK。
+
+7. DataSync Agent作成
+
+DataSync AgentをEC2上のアプライアンスとして構築。
+
+AgentのIP：
+
+10.0.192.31
+
+Agentのコンソールから：
+
+0: Get activation key
+
+でActivation Keyを取得。
+
+AWSコンソールからAgentをアクティベート。
+
+8. DataSync送信元Location
+
+送信元はWindows ServerのSMB。
+
+設定：
+
+Type
+SMB
+
+Server
+10.0.139.213
+
+Path
+/Shr/
+
+User
+syncuser
+
+Authentication
+NTLM
+
+パスワードはAWS Secrets Managerで管理。
+
+9. DataSync送信先Location
+
+送信先はFSx for Windows File Server。
+
+Type
+Amazon FSx for Windows File Server
+
+File System
+fs-0d03a5871e4076a4f
+
+Path
+/share/
+
+User
+Administrator
+
+今回の検証では、最終的にFSxの共有として存在する
+
+share
+
+を使用。
+
+10. DataSync Task作成
+Source
+Windows Server SMB Location
+
+        ↓
+
+DataSync Task
+
+        ↓
+
+Destination
+FSx for Windows File Server
+/share/
+
+Taskを実行。
+
+送信元のファイルがFSxの
+
+\\amznfsxuirt9mbz.nishihara.com\share
+
+へ同期されることを確認。
+
+11. 障害時の利用確認
+
+今回の検証で最終的に確認したかった部分。
+
+通常：
+
+Windows Server
+     ↓
+オンプレFS
+
+DataSyncで：
+
+オンプレFS
+     ↓
+DataSync
+     ↓
+FSx
+
+障害時：
+
+オンプレFS
+   ❌
+   
+利用者
+   ↓
+FSx
+   ↓
+\\amznfsxuirt9mbz.nishihara.com\share
+
+つまり、オンプレ側のファイルサーバーが使用不能になっても、FSxに同期済みのファイルを直接利用できることを確認する。
+
+今回の検証でハマったポイント
+① DNS
+
+最初：
+
+EnableDnsSupport = false
+EnableDnsHostnames = false
+
+→ 有効化。
+
+② FSxのDNS名を間違えた
+amznfsxvlzpspjk.nishihara.com
+
+は管理用。
+
+amznfsxuirt9mbz.nishihara.com
+
+がSMB接続用。
+
+③ shr と share
+
+DataSyncで最初：
+
+/shr/
+
+を指定。
+
+しかしFSxに存在した共有は：
+
+/share/
+
+だった。
+
+そのため、
+
+mount error(2): No such file or directory
+
+が発生。
+
+最終的に /share/ に変更。
